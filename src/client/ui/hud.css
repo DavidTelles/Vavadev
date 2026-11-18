@@ -8,12 +8,30 @@
 .hud .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); transition: width 0.15s; }
 
 .hud-blind { position: absolute; inset: 0; background: #fff; opacity: 0; }
-.hud-cross { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
-.hud-cross i { position: absolute; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55); }
-.hud-cross i:nth-child(1) { left: 4px; top: -1px; width: 7px; height: 2px; }
-.hud-cross i:nth-child(2) { left: -11px; top: -1px; width: 7px; height: 2px; }
-.hud-cross i:nth-child(3) { top: 4px; left: -1px; width: 2px; height: 7px; }
-.hud-cross i:nth-child(4) { top: -11px; left: -1px; width: 2px; height: 7px; }
+/* Crosshair (.xh is shared with the settings preview). --gap opens it with spread. */
+.xh { --xh: #3dff7a; --gap: 4px; position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+.hud-cross.off { display: none; }
+.xh i, .xh b, .xh s { position: absolute; display: block; background: var(--xh); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); }
+.xh i.xh-r { left: var(--gap); top: -1px; width: 7px; height: 2px; }
+.xh i.xh-l { left: calc(-7px - var(--gap)); top: -1px; width: 7px; height: 2px; }
+.xh i.xh-b { top: var(--gap); left: -1px; width: 2px; height: 7px; }
+.xh i.xh-t { top: calc(-7px - var(--gap)); left: -1px; width: 2px; height: 7px; }
+.xh b.xh-dot { left: -1.5px; top: -1.5px; width: 3px; height: 3px; border-radius: 50%; }
+.xh s.xh-ring { background: none; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(0, 0, 0, 0.5);
+  border: 2px solid var(--xh); border-radius: 50%;
+  width: calc(10px + var(--gap) * 2); height: calc(10px + var(--gap) * 2);
+  left: calc(-7px - var(--gap)); top: calc(-7px - var(--gap)); }
+
+/* Sniper scope: black surround, circular lens with a full cross and centre dot. */
+.hud-scope { position: absolute; inset: 0; display: none; }
+.hud-scope.on { display: block; }
+.hud-scope .lens { position: absolute; left: 50%; top: 50%; width: 90vmin; height: 90vmin; transform: translate(-50%, -50%);
+  border-radius: 50%; box-shadow: 0 0 0 200vmax #000, inset 0 0 60px 30px rgba(0, 0, 0, 0.85); border: 3px solid #000; }
+.hud-scope .lens i { position: absolute; background: #000; }
+.hud-scope .lens i.h { left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; }
+.hud-scope .lens i.v { top: 0; bottom: 0; left: 50%; width: 2px; margin-left: -1px; }
+.hud-scope .lens b { position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: #ff2a3a; }
+.hud.dead .hud-scope { display: none; }
 .hud.dead .hud-cross { display: none; }
 
 .hud-top { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; }
@@ -28,7 +46,7 @@
 .hud-alive i { width: 9px; height: 9px; transform: rotate(45deg); background: var(--cyan); display: block; }
 .hud-alive div:last-child i { background: var(--pink); }
 .hud-alive i.dead { background: rgba(255, 255, 255, 0.15); }
-.hud-credits { position: absolute; top: 22px; left: 24px; font-size: 18px; font-weight: 600; color: var(--pink); letter-spacing: 0.18em; }
+.hud-credits { position: absolute; top: 230px; left: 18px; font-size: 18px; font-weight: 600; color: var(--pink); letter-spacing: 0.18em; }
 
 .hud-vitals { position: absolute; left: 24px; bottom: 26px; display: flex; gap: 22px; align-items: flex-end; }
 .hud-vitals b { font-size: 44px; font-weight: 700; line-height: 0.9; display: block; }
@@ -114,3 +132,30 @@
 .hud-board tbody.them tr:first-child td { border-top: 2px solid var(--line); }
 .hud-board tr.dead { opacity: 0.45; }
 .hud-board tr.me td { background: rgba(255, 95, 168, 0.08); }
+
+/* ----- minimap (top-left, player-centred, rotating) ----- */
+.hud-minimap { position: absolute; top: 16px; left: 16px; width: 200px; height: 200px; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45); }
+
+/* ----- damage vignette: edges only, centre always clear ----- */
+.hud-dmg {
+  position: absolute; inset: 0; opacity: 0;
+  background: radial-gradient(ellipse 75% 70% at center, rgba(255, 30, 45, 0.16) 0%, rgba(255, 30, 45, 0.2) 50%, rgba(255, 30, 45, 0.45) 80%, rgba(200, 0, 20, 0.8) 100%);
+}
+
+/* ----- owned weapons (right side) ----- */
+.hud-inv { position: absolute; right: 22px; bottom: 118px; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.hud-inv .inv-row { position: relative; display: flex; flex-direction: column; align-items: flex-end; padding-right: 18px; opacity: 0.55; transition: opacity 0.12s; }
+.hud-inv .inv-row.on { opacity: 1; }
+.hud-inv .num { position: absolute; right: 0; top: 2px; font-size: 13px; font-weight: 700; color: var(--ink); }
+.hud-inv .ico {
+  display: block; width: 132px; height: 50px; background: var(--ink);
+  -webkit-mask-size: contain; mask-size: contain; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: right center; mask-position: right center;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.8));
+}
+.hud-inv .melee .ico { width: 92px; height: 34px; }
+.hud-inv .spike .ico { width: 60px; height: 30px; background: #ff4655; }
+.hud-inv .on .ico { background: #ffe14a; }
+.hud-inv .on .num { color: #ffe14a; }
+.hud-inv small { display: none; margin-top: 2px; font-size: 12px; font-weight: 700; letter-spacing: 0.24em; color: #ffe14a; }
+.hud-inv .on small { display: block; }

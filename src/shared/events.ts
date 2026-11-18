@@ -5,6 +5,10 @@ export type MatchPhase = 'warmup' | 'buy' | 'combat' | 'planted' | 'roundEnd' | 
 
 export interface SimEvents {
   shot: { agentId: number; weaponId: string; origin: Vec3; end: Vec3; hitAgent: boolean };
+  /** Um disparo (puxada do gatilho), emitido uma vez mesmo para escopetas. */
+  fired: { agentId: number; weaponId: string; origin: Vec3; dir: Vec3 };
+  /** Golpe corpo a corpo (faca). */
+  melee: { agentId: number; weaponId: string; hit: boolean; victimId: number; combo: number };
   impact: { point: Vec3; normal: Vec3; surface: 'world' | 'barrier' };
   damage: { attackerId: number; victimId: number; amount: number; part: BodyPart | 'ability'; source: string; from: Vec3 };
   kill: { killerId: number; victimId: number; weaponId: string; headshot: boolean; assists: number[] };

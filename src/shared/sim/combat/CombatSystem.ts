@@ -33,7 +33,8 @@ export class CombatSystem {
       if (w.ammo <= 0 && def.category !== 'corpo') {
         this.startReload(a);
       } else {
-        this.fire(a, w.def);
+        if (def.melee) this.meleeAttack(a, def);
+        else this.fire(a, w.def);
         fired = true;
         if (def.category !== 'corpo' && def.mag > 0) w.ammo--;
         const interval = 60 / def.rpm;
@@ -89,9 +90,43 @@ export class CombatSystem {
     let s = def.spreadBase + def.spreadMove * Math.min(1, moveFrac) + a.spread;
     if (!a.motor.grounded) s += def.spreadAir;
     if (a.motor.crouch > 0.5) s *= def.spreadCrouch;
-    if (a.input.aim && def.zoom > 1.2) s *= def.spreadAim;
+    if (a.input.aim && def.zoom > 1) s *= def.spreadAim;
     if (this.sim.time < a.slowUntil && a.slowMult < 0.6) s += 1.5 * (Math.PI / 180);
     return Math.min(s, def.spreadMax + def.spreadMove + def.spreadAir);
+  }
+
+  /** Facada: cone curto à frente, sem projétil nem impacto. Costas = dano extra. */
+  private meleeAttack(a: Agent, def: WeaponDef): void {
+    const time = this.sim.time;
+    a.eye(tmpEye);
+    const cp = Math.cos(a.pitch);
+    const fx = -Math.sin(a.yaw) * cp, fy = Math.sin(a.pitch), fz = -Math.cos(a.yaw) * cp;
+    const cosArc = Math.cos(35 * (Math.PI / 180));
+    let best: Agent | null = null;
+    let bestD = Infinity;
+    for (const t of this.sim.agents) {
+      if (t === a || !t.alive || t.team === a.team) continue;
+      const dx = t.pos.x - tmpEye.x, dz = t.pos.z - tmpEye.z;
+      const dy = (t.pos.y + 1.1) - tmpEye.y;
+      const d = Math.hypot(dx, dy, dz);
+      if (d > def.range + 0.4 || d < 1e-4) continue;
+      const dot = (dx * fx + dy * fy + dz * fz) / d;
+      if (dot < cosArc && d > 0.9) continue;
+      tmpDir.x = dx / d; tmpDir.y = dy / d; tmpDir.z = dz / d;
+      const wall = this.sim.physics.raycast(tmpEye, tmpDir, d);
+      if (wall && wall.dist < d - 0.5) continue;
+      if (d < bestD) { bestD = d; best = t; }
+    }
+    a.meleeCombo = (a.meleeCombo + 1) % 2;
+    if (best) {
+      // Costas: a vítima está de frente para o mesmo lado que o atacante.
+      const vfx = -Math.sin(best.yaw), vfz = -Math.cos(best.yaw);
+      const back = vfx * -Math.sin(a.yaw) + vfz * -Math.cos(a.yaw) > 0.5;
+      const dmg = back ? def.damage.head * 2 : def.damage.body;
+      this.applyDamage(a, best, dmg, back ? 'head' : 'body', def.id, tmpEye);
+    }
+    this.sim.events.emit('melee', { agentId: a.id, weaponId: def.id, hit: !!best, victimId: best?.id ?? -1, combo: a.meleeCombo });
+    a.lastShotTime = time;
   }
 
   private fire(a: Agent, def: WeaponDef): void {
@@ -124,12 +159,20 @@ export class CombatSystem {
     }
     void lastEnd;
     void anyHit;
+    {
+      const cp = Math.cos(basePitch);
+      this.sim.events.emit('fired', {
+        agentId: a.id, weaponId: def.id, origin: { ...tmpEye },
+        dir: { x: -Math.sin(baseYaw) * cp, y: Math.sin(basePitch), z: -Math.cos(baseYaw) * cp },
+      });
+    }
 
     a.lastShotTime = time;
     a.shotsInBurst++;
     if (def.category !== 'corpo') {
-      const kick = def.recoilPitch * (a.shotsInBurst > 8 ? 0.35 : 1);
-      a.recoilPitch = Math.min(a.recoilPitch + kick, 14 * (Math.PI / 180));
+      // Recuo cresce com a rajada: cada tiro consecutivo sobe um pouco mais, até o teto da arma.
+      const kick = def.recoilPitch * (1 + Math.min(a.shotsInBurst, 10) * 0.08);
+      a.recoilPitch = Math.min(a.recoilPitch + kick, def.recoilMax);
       const sway = a.shotsInBurst > 6 ? Math.sin(a.shotsInBurst * 0.55) * 2.2 : (rng() - 0.5);
       a.recoilYaw += def.recoilYaw * sway;
       a.spread = Math.min(a.spread + def.spreadPerShot, def.spreadMax);

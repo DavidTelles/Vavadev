@@ -14,7 +14,7 @@ import type { Agent } from '@shared/sim/Agent';
 import { getUsinaMap } from '@shared/data/maps/usina';
 import { CHARACTERS } from '@shared/data/characters';
 import { WEAPONS } from '@shared/data/weapons';
-import { emptyInput, type Difficulty, type InputCommand, type MatchMode, type Team, v3dist } from '@shared/types';
+import type { Difficulty, MatchMode, Team } from '@shared/types';
 import { TICK_DT } from '@shared/constants';
 import { t } from '@shared/i18n/pt-BR';
 
@@ -71,11 +71,15 @@ export class Game {
   // ViewModel animation state
   private readonly vmState: ViewModelState = {
     speed: 0, grounded: true, aiming: false, reloadT: 0, equipT: 0,
-    lookDX: 0, lookDY: 0, planting: false,
+    lookDX: 0, lookDY: 0, planting: false, equipDur: 1, scope: false,
   };
   private prevHumanYaw = 0;
   private prevHumanPitch = 0;
   private lastWeaponId = '';
+  /** ADS blend 0..1 (camera zoom + sensitivity). */
+  private adsT = 0;
+  /** Short visual camera kick per shot (rad), on top of the sim's accumulated recoil. */
+  private punch = 0;
 
   constructor(readonly engine: Engine, private readonly opts: GameOptions, private readonly onExit: (r: GameResult | null) => void) {
     const canvas = engine.canvas;
@@ -119,7 +123,9 @@ export class Game {
     });
     this.humanAgentId = sim.agents[0].id;
     this._sim = sim;
-    this.hud = new HUD(this.hudRoot, sim, this.humanAgentId);
+    this.hud = new HUD(this.hudRoot, sim, this.humanAgentId, this.engine.renderer, {
+      type: this.opts.settings.crosshairType, color: this.opts.settings.crosshairColor,
+    });
     this.hudRoot.appendChild(this.pauseEl);
     this.world = new WorldRenderer(sim);
     this.engine.scene.add(this.world.group);
@@ -149,10 +155,23 @@ export class Game {
   private wireEvents(): void {
     const e = this.sim.events;
     const human = (): Agent => this.sim.agentById(this.humanAgentId)!;
-    e.on('shot', (p) => this.fx.spawnTracer(p.origin, p.end, 0xffd28a));
-    e.on('impact', (p) => this.fx.spawnImpact(p.point, p.normal, 0xffd28a));
+    // No tracers: muzzle flash at the gun, bullet hole where the shot lands.
+    e.on('fired', (p) => {
+      const def = WEAPONS[p.weaponId];
+      if (p.agentId === this.humanAgentId) {
+        this.viewModel.fire(def?.recoilPitch ?? 0.015);
+        this.punch += (def?.recoilPitch ?? 0.01) * 0.45;
+      } else if (p.agentId >= 0) {
+        this.fx.spawnMuzzleFlash(p.origin, p.dir);
+      }
+    });
+    e.on('melee', (p) => {
+      if (p.agentId === this.humanAgentId) this.viewModel.stab(p.combo);
+    });
+    e.on('impact', (p) => this.fx.spawnImpact(p.point, p.normal));
     e.on('damage', (p) => {
       if (p.attackerId === this.humanAgentId) this.hud.hitMarker(p.part === 'head');
+      if (p.victimId === this.humanAgentId && p.amount > 0) this.hud.damageFlash(p.amount);
     });
     e.on('kill', (p) => {
       const victim = this.sim.agentById(p.victimId);
@@ -161,6 +180,7 @@ export class Game {
       this.hud.killFeed(this.sim.agentById(p.killerId), victim, p.headshot, wname);
     });
     e.on('roundStart', (p) => {
+      this.fx.clearHoles();
       this.hud.showBanner(`${t('hud.rodada').toUpperCase()} ${p.round}`, t(human().team === 'atk' ? 'hud.atacando' : 'hud.defendendo'), true, 2500);
     });
     e.on('roundEnd', (p) => {
@@ -191,15 +211,22 @@ export class Game {
   }
 
   private fixedUpdate(dt: number): void {
+    const steps = this.input.takeWheel();
+    const me = this.sim.agentById(this.humanAgentId);
+    if (steps && me && me.alive) {
+      // Cycle 1 -> 2 -> 3 (wheel down) or reverse, skipping empty slots.
+      let slot = me.current;
+      for (let n = 0; n < Math.abs(steps); n++) {
+        for (let k = 0; k < 3; k++) {
+          slot = ((slot - 1 + Math.sign(steps) + 3) % 3) + 1;
+          if (me.slots[slot]) break;
+        }
+      }
+      if (slot !== me.current) this.input.setSlot(slot);
+    }
     const humanCmd = this.input.sample();
     this.sim.setInput(this.humanAgentId, humanCmd);
     this.input.consumeOneShots();
-
-    for (const a of this.sim.agents) {
-      if (a.id === this.humanAgentId || !a.isBot || !a.alive) continue;
-      const cmd = this.botCommand(a);
-      this.sim.setInput(a.id, cmd);
-    }
 
     for (const r of this.botRenderers.values()) r.snapshot();
     this.sim.step(dt);
@@ -212,34 +239,6 @@ export class Game {
     }
   }
 
-  /** Placeholder bot brain until Phase 5: chase the nearest visible enemy and shoot. */
-  private botCommand(bot: Agent): InputCommand {
-    const cmd = emptyInput();
-    cmd.yaw = bot.yaw;
-    cmd.pitch = bot.pitch;
-    if (!bot.alive) return cmd;
-    let target: Agent | null = null;
-    let bestD = 1e9;
-    const eye = bot.eye();
-    for (const e of this.sim.agents) {
-      if (e.team !== bot.team && e.alive) {
-        const d = v3dist(bot.pos, e.pos);
-        if (d < bestD) { bestD = d; target = e; }
-      }
-    }
-    if (!target) return cmd;
-    const aimPoint = { x: target.pos.x, y: target.pos.y + 1.1, z: target.pos.z };
-    const visible = this.sim.canSee(eye, aimPoint);
-    const dx = aimPoint.x - eye.x;
-    const dy = aimPoint.y - eye.y;
-    const dz = aimPoint.z - eye.z;
-    cmd.yaw = Math.atan2(-dx, -dz);
-    cmd.pitch = Math.max(-1.3, Math.min(1.3, Math.atan2(dy, Math.hypot(dx, dz))));
-    if (bestD > 6 || !visible) cmd.moveZ = 1;
-    if (visible && bestD < 45) cmd.fire = true;
-    return cmd;
-  }
-
   private frameUpdate(dt: number, alpha: number): void {
     const human = this.sim.agentById(this.humanAgentId);
     const spect = human && !human.alive ? this.pickSpectate(human) : null;
@@ -248,9 +247,23 @@ export class Game {
       spect.eye(this.engine.camera.position);
       this.engine.camera.rotation.set(spect.pitch, spect.yaw, 0, 'YXZ');
     }
+    const def = human?.weapon.def;
+    const canAim = !!human && human.alive && !!def && !def.melee && human.input.aim
+      && this.sim.time >= human.reloadEnd && this.sim.time >= human.equipEnd;
+    this.adsT += ((canAim ? 1 : 0) - this.adsT) * Math.min(1, dt * (def?.scope ? 16 : 13));
+    if (this.adsT < 0.001) this.adsT = 0;
+    const zoom = 1 + ((def?.zoom ?? 1) - 1) * this.adsT;
+    const baseFov = this.opts.settings.fov;
+    const fov = (2 * Math.atan(Math.tan((baseFov * Math.PI) / 360) / zoom) * 180) / Math.PI;
+    if (Math.abs(this.engine.camera.fov - fov) > 0.01) this.engine.setFov(fov);
+    this.input.zoomScale = 1 / zoom;
+    this.punch *= Math.exp(-dt * 22);
+
     if (human && human.alive) {
       human.eye(this.engine.camera.position);
-      this.engine.camera.rotation.set(human.pitch, human.yaw, 0, 'YXZ');
+      // Recoil climbs the view: the sim aims bullets at pitch + recoilPitch, so the crosshair stays on the shot.
+      const pitch = Math.max(-1.55, Math.min(1.55, human.pitch + human.recoilPitch + this.punch));
+      this.engine.camera.rotation.set(pitch, human.yaw + human.recoilYaw, 0, 'YXZ');
 
       this.viewModel.camera.position.copy(this.engine.camera.position);
       this.viewModel.camera.quaternion.copy(this.engine.camera.quaternion);
@@ -265,13 +278,24 @@ export class Game {
       const now = this.sim.time;
       this.vmState.reloadT = Math.max(0, human.reloadEnd - now);
       this.vmState.equipT = Math.max(0, human.equipEnd - now);
+      this.vmState.equipDur = human.weapon.def.equipTime;
+      this.vmState.scope = !!human.weapon.def.scope;
       this.viewModel.update(dt, this.vmState);
+
+      // Crosshair: sniper only shows its scope reticle; others open with current spread.
+      const scoped = !!def?.scope && this.adsT > 0.85;
+      const pxPerRad = window.innerHeight / 2 / Math.tan((fov * Math.PI) / 360);
+      const spread = def ? this.sim.combat.currentSpread(human, def) : 0;
+      const gap = def?.melee ? 4 : Math.min(40, 3 + spread * pxPerRad * 0.6);
+      this.hud.setAim(scoped, !!def?.scope, gap);
+    } else {
+      this.hud.setAim(false, false, 4);
     }
 
     for (const r of this.botRenderers.values()) r.update(dt, alpha);
     this.fx.update(dt);
     this.world.update(dt);
-    this.hud.update(spect);
+    this.hud.update(dt, spect);
 
     const r = this.engine.renderer;
     r.clear();

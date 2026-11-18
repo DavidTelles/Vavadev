@@ -10,6 +10,7 @@ import { AbilitySystem } from './abilities/AbilitySystem';
 import { CombatSystem } from './combat/CombatSystem';
 import { MatchController } from './match/MatchController';
 import { initPhysics, PhysicsWorld } from './physics/PhysicsWorld';
+import { BotController } from './bots/BotController';
 
 export interface AgentSetup {
   name: string;
@@ -24,6 +25,8 @@ export interface SimOptions {
   agents: AgentSetup[];
   seed?: number;
   mapId?: string;
+  /** Attach the bot AI to every isBot agent (default true). */
+  bots?: boolean;
 }
 
 export interface GroundWeapon {
@@ -69,7 +72,9 @@ export class Simulation {
 
   static async create(opts: SimOptions): Promise<Simulation> {
     await initPhysics();
-    return new Simulation(opts);
+    const sim = new Simulation(opts);
+    if (opts.bots !== false) sim.controllers.push(new BotController(sim));
+    return sim;
   }
 
   private constructor(readonly opts: SimOptions) {

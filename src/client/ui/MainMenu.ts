@@ -7,6 +7,8 @@ import type { Difficulty, MatchMode, Role } from '@shared/types';
 import type { MenuScene } from '@client/menu/MenuScene';
 import { profile } from '@client/Profile';
 import { ICON, LOGO, SKYLINE, SPIRIT, TRIANGLE } from './icons';
+import { applyCrosshair, CROSSHAIR_COLORS, CROSSHAIR_TYPES } from './Crosshair';
+import './hud.css';
 
 export interface PlayRequest {
   mode: MatchMode;
@@ -443,7 +445,7 @@ export class MainMenu {
     const s = profile.data.settings;
     const range = (key: keyof typeof s, label: string, min: number, max: number, step: number): string =>
       `<label class="mm-field"><span>${esc(t(label))}</span><input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${s[key]}"><output>${s[key]}</output></label>`;
-    const seg = (key: 'quality' | 'difficulty', label: string, opts: [string, string][]): string =>
+    const seg = (key: 'quality' | 'difficulty' | 'crosshairType' | 'crosshairColor', label: string, opts: [string, string][]): string =>
       `<div class="mm-field"><span>${esc(t(label))}</span><div class="mm-seg">${opts.map(([v, n]) => `<button data-k="${key}" data-v="${v}" class="${s[key] === v ? 'on' : ''}">${esc(t(n))}</button>`).join('')}</div></div>`;
     b.innerHTML = `
       <label class="mm-field"><span>${esc(t('menu.nomeJogador'))}</span><input type="text" maxlength="14" value="${esc(s.playerName)}"></label>
@@ -453,7 +455,11 @@ export class MainMenu {
       ${range('volumeVoice', 'settings.volumeVoz', 0, 100, 1)}
       ${range('volumeMusic', 'settings.volumeMusica', 0, 100, 1)}
       ${seg('quality', 'settings.graficos', [['baixa', 'settings.graficoBaixa'], ['media', 'settings.graficoMedia'], ['alta', 'settings.graficoAlta']])}
-      ${seg('difficulty', 'settings.dificuldade', [['facil', 'settings.dificuldadeFacil'], ['normal', 'settings.dificuldadeNormal'], ['dificil', 'settings.dificuldadeDificil']])}`;
+      ${seg('difficulty', 'settings.dificuldade', [['facil', 'settings.dificuldadeFacil'], ['normal', 'settings.dificuldadeNormal'], ['dificil', 'settings.dificuldadeDificil']])}
+      ${seg('crosshairType', 'settings.mira', CROSSHAIR_TYPES.map((v) => [v, 'settings.mira.' + v] as [string, string]))}
+      ${seg('crosshairColor', 'settings.miraCor', CROSSHAIR_COLORS.map((v) => [v, 'settings.cor.' + v] as [string, string]))}
+      <div class="mm-field"><span>${esc(t('settings.miraPrevia'))}</span><div class="mm-xh-preview"><div class="xh"></div></div></div>`;
+    applyCrosshair(b.querySelector<HTMLElement>('.mm-xh-preview .xh')!, s.crosshairType, s.crosshairColor);
     b.querySelectorAll<HTMLInputElement>('input[type=range]').forEach((inp) => inp.addEventListener('input', () => {
       (s as unknown as Record<string, number>)[inp.dataset.k!] = Number(inp.value);
       inp.nextElementSibling!.textContent = inp.value;

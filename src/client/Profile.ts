@@ -1,5 +1,6 @@
 import type { GraphicsQuality } from '@client/core/Engine';
 import type { Difficulty, MatchMode, Team } from '@shared/types';
+import type { CrosshairColor, CrosshairType } from '@client/ui/Crosshair';
 
 /**
  * Per-browser player profile and settings, persisted in localStorage.
@@ -15,6 +16,8 @@ export interface Settings {
   volumeMusic: number;
   quality: GraphicsQuality;
   difficulty: Difficulty;
+  crosshairType: CrosshairType;
+  crosshairColor: CrosshairColor;
 }
 
 export interface MatchRecord {
@@ -48,6 +51,8 @@ export const DEFAULT_SETTINGS: Settings = {
   volumeMusic: 50,
   quality: 'alta',
   difficulty: 'normal',
+  crosshairType: 'cruz',
+  crosshairColor: 'verde',
 };
 
 function defaults(): ProfileData {

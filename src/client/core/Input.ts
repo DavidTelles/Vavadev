@@ -20,6 +20,8 @@ export class Input {
   private ability: AbilitySlot | null = null;
   private wantDrop = false;
   private wantReload = false;
+  private wheelSteps = 0;
+  private lastWheel = 0;
   locked = false;
 
   constructor(private readonly canvas: HTMLCanvasElement, private readonly cb: InputCallbacks) {
@@ -28,6 +30,7 @@ export class Input {
     window.addEventListener('mousedown', this.onMouseDown);
     window.addEventListener('mouseup', this.onMouseUp);
     window.addEventListener('mousemove', this.onMouseMove);
+    window.addEventListener('wheel', this.onWheel, { passive: false });
     window.addEventListener('blur', this.onBlur);
     window.addEventListener('contextmenu', this.prevent);
     document.addEventListener('pointerlockchange', this.onLockChange);
@@ -118,6 +121,28 @@ export class Input {
     this.pitch = Math.max(-1.5, Math.min(1.5, this.pitch));
   };
 
+  /** One weapon step per wheel notch, throttled so a fast flick doesn't skip past a slot. */
+  private onWheel = (e: WheelEvent): void => {
+    if (!this.locked || !this.enabled || e.deltaY === 0) return;
+    e.preventDefault();
+    const now = performance.now();
+    if (now - this.lastWheel < 80) return;
+    this.lastWheel = now;
+    this.wheelSteps += Math.sign(e.deltaY);
+  };
+
+  /** Pending wheel steps (+ = next weapon, - = previous); clears them. */
+  takeWheel(): number {
+    const n = this.wheelSteps;
+    this.wheelSteps = 0;
+    return n;
+  }
+
+  /** Request a weapon slot (1-3) for the next sample, as if its number key was pressed. */
+  setSlot(slot: number): void {
+    this.slot = slot;
+  }
+
   zoomScale = 1;
 
   sample(): InputCommand {
@@ -162,6 +187,7 @@ export class Input {
     window.removeEventListener('mousedown', this.onMouseDown);
     window.removeEventListener('mouseup', this.onMouseUp);
     window.removeEventListener('mousemove', this.onMouseMove);
+    window.removeEventListener('wheel', this.onWheel);
     window.removeEventListener('blur', this.onBlur);
     window.removeEventListener('contextmenu', this.prevent);
     document.removeEventListener('pointerlockchange', this.onLockChange);

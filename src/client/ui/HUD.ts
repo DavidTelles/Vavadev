@@ -5,6 +5,10 @@ import { DEFUSE_TIME, PLANT_TIME, SPIKE_TIME } from '@shared/constants';
 import type { Simulation } from '@shared/sim/Simulation';
 import type { Agent } from '@shared/sim/Agent';
 import type { AbilitySlot, Team } from '@shared/types';
+import type { WebGLRenderer } from 'three';
+import { weaponIcon } from './WeaponIcons';
+import { Minimap } from './Minimap';
+import { applyCrosshair, type CrosshairColor, type CrosshairType } from './Crosshair';
 
 const esc = (s: string): string => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const SLOTS: AbilitySlot[] = ['C', 'Q', 'E', 'X'];
@@ -22,15 +26,30 @@ export class HUD {
   private readonly feed: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly blind: HTMLElement;
+  private readonly dmg: HTMLElement;
+  private readonly inv: HTMLElement;
+  private readonly minimap: Minimap;
+  private readonly cross: HTMLElement;
+  private readonly scope: HTMLElement;
+  private dmgAnim: Animation | null = null;
   private bannerTimer = 0;
   shopOpen = false;
 
-  constructor(root: HTMLElement, private readonly sim: Simulation, private readonly humanId: number) {
+  constructor(
+    root: HTMLElement,
+    private readonly sim: Simulation,
+    private readonly humanId: number,
+    private readonly renderer: WebGLRenderer,
+    crosshair: { type: CrosshairType; color: CrosshairColor } = { type: 'cruz', color: 'verde' },
+  ) {
     this.el = document.createElement('div');
     this.el.className = 'hud';
     this.el.innerHTML = `
       <div class="hud-blind"></div>
-      <div class="hud-cross"><i></i><i></i><i></i><i></i></div>
+      <div class="hud-dmg"></div>
+      <div class="hud-inv"></div>
+      <div class="hud-scope"><div class="lens"><i class="h"></i><i class="v"></i><b></b></div></div>
+      <div class="hud-cross xh"></div>
       <div class="hud-top">
         <div class="hud-score us"><b data-n="us">0</b></div>
         <div class="hud-clock"><small data-n="round"></small><b data-n="time"></b><small data-n="phase"></small></div>
@@ -61,6 +80,13 @@ export class HUD {
     this.feed = this.el.querySelector('.hud-feed')!;
     this.banner = this.el.querySelector('.hud-banner')!;
     this.blind = this.el.querySelector('.hud-blind')!;
+    this.dmg = this.el.querySelector('.hud-dmg')!;
+    this.inv = this.el.querySelector('.hud-inv')!;
+    this.cross = this.el.querySelector('.hud-cross')!;
+    this.scope = this.el.querySelector('.hud-scope')!;
+    applyCrosshair(this.cross, crosshair.type, crosshair.color);
+    this.minimap = new Minimap(sim);
+    this.el.prepend(this.minimap.el);
   }
 
   private get human(): Agent {
@@ -79,7 +105,7 @@ export class HUD {
 
   // ---------- per frame ----------
 
-  update(spectating: Agent | null): void {
+  update(dt: number, spectating: Agent | null): void {
     const h = this.human;
     const m = this.sim.match;
     const us: Team = h.team;
@@ -110,6 +136,8 @@ export class HUD {
         this.set(`cd${s}`, st.cooldownLeft > 0 && st.charges < st.def.maxCharges && st.def.cooldown > 0 ? String(Math.ceil(st.cooldownLeft)) : '');
       }
     }
+    this.renderInventory(who);
+    this.minimap.update(dt, who);
     const w = who.weapon;
     this.set('wname', w.def.name.toUpperCase());
     this.set('ammo', w.def.category === 'corpo' ? '' : String(w.ammo));
@@ -135,6 +163,45 @@ export class HUD {
       this.blind.style.opacity = bs;
     }
     if (this.shopOpen) this.renderShop(false);
+  }
+
+  /** Owned weapons on the right: silhouette + slot number, active one tinted with its name. */
+  private renderInventory(who: Agent): void {
+    const key = `${who.id}|${who.slots.map((w) => w?.def.id ?? '').join()}|${who.current}|${who.hasSpike}|${!!who.ultWeapon}`;
+    if (this.cache.get('inv') === key) return;
+    this.cache.set('inv', key);
+    const row = (id: string, name: string, num: string, on: boolean, cls = ''): string => {
+      const url = weaponIcon(this.renderer, id);
+      return `<div class="inv-row${on ? ' on' : ''}${cls}"><span class="num">${num}</span><i class="ico" style="-webkit-mask-image:url(${url});mask-image:url(${url})"></i><small>${esc(name.toUpperCase())}</small></div>`;
+    };
+    let html = '';
+    if (who.ultWeapon) html += row(who.ultWeapon.def.id, who.ultWeapon.def.name, 'X', true);
+    for (const n of [1, 2, 3]) {
+      const w = who.slots[n];
+      if (w) html += row(w.def.id, w.def.name, String(n), !who.ultWeapon && who.current === n, n === 3 ? ' melee' : '');
+    }
+    if (who.hasSpike) html += row('spike', 'Spike', '4', false, ' spike');
+    this.inv.innerHTML = html;
+  }
+
+  /**
+   * Aim state from the client each frame: `scoped` shows the sniper overlay,
+   * `hideCross` hides the crosshair (sniper unscoped), `gap` opens it with spread (px).
+   */
+  setAim(scoped: boolean, hideCross: boolean, gap: number): void {
+    const key = `${scoped}|${hideCross}|${Math.round(gap)}`;
+    if (this.cache.get('aim') === key) return;
+    this.cache.set('aim', key);
+    this.scope.classList.toggle('on', scoped);
+    this.cross.classList.toggle('off', hideCross || scoped);
+    this.cross.style.setProperty('--gap', `${Math.round(gap)}px`);
+  }
+
+  /** Red pulse: faint transparent tint over the whole screen, stronger at the edges. */
+  damageFlash(amount: number): void {
+    const peak = Math.min(1, 0.6 + amount / 100);
+    this.dmgAnim?.cancel();
+    this.dmgAnim = this.dmg.animate([{ opacity: peak }, { opacity: 0 }], { duration: 480, easing: 'cubic-bezier(.2,.7,.3,1)' });
   }
 
   // ---------- events ----------

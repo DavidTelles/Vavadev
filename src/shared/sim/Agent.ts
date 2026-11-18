@@ -63,6 +63,7 @@ export class Agent {
   recoilPitch = 0;
   recoilYaw = 0;
   shotsInBurst = 0;
+  meleeCombo = 0;
   lastShotTime = -10;
 
   blindUntil = 0;
