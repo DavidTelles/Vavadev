@@ -3,4 +3,44 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #0d1117; f
 #app { position: fixed; inset: 0; }
 #game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 #ui-root { position: absolute; inset: 0; pointer-events: none; }
-#ui-root > * { pointer-events: auto; }
+#ui-root > * { pointer-events: none; }
+body { background: #08070b; }
+#ui-root { font-family: 'Rajdhani', 'Segoe UI', sans-serif; }
+
+/* ---------- in-match HUD ---------- */
+.game-hud { position: absolute; inset: 0; pointer-events: none; color: #ece6ef; letter-spacing: 0.08em; }
+.game-hud .hud-el { position: absolute; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8); }
+#hud-ammo { bottom: 110px; left: 24px; font-size: 30px; font-weight: 700; }
+#hud-status { bottom: 70px; left: 24px; font-size: 17px; font-weight: 600; }
+#hud-round { top: 20px; left: 50%; transform: translateX(-50%); font-size: 18px; font-weight: 600; letter-spacing: 0.16em; }
+#killfeed { bottom: 24px; right: 24px; font-size: 15px; font-weight: 600; max-width: 380px; text-align: right; }
+#killfeed > div { margin-top: 4px; }
+#crosshair {
+  position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; transform: translate(-50%, -50%);
+  background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 6px #ff5fa8;
+}
+.hitmark {
+  position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%) rotate(45deg);
+  border: 2px solid #fff; animation: hitmark 0.18s ease-out forwards;
+}
+.hitmark.head { border-color: #ff5fa8; border-width: 3px; }
+@keyframes hitmark { from { opacity: 1; } to { opacity: 0; transform: translate(-50%, -50%) rotate(45deg) scale(1.4); } }
+.game-pause {
+  position: absolute; inset: 0; display: none; place-items: center; background: rgba(6, 5, 9, 0.72);
+  backdrop-filter: blur(4px); pointer-events: auto;
+}
+.game-pause.on { display: grid; }
+.game-pause .box { display: flex; flex-direction: column; gap: 12px; min-width: 320px; }
+.game-pause h2 { font-size: 34px; font-weight: 600; letter-spacing: 0.3em; margin-bottom: 10px; }
+.game-pause button {
+  background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(236, 230, 239, 0.28); color: #ece6ef; font: inherit;
+  font-size: 18px; font-weight: 600; letter-spacing: 0.24em; padding: 14px 20px; text-align: left; cursor: pointer;
+}
+.game-pause button:hover { border-color: #ff5fa8; color: #fff; background: rgba(255, 95, 168, 0.12); }
+.game-pause button:first-of-type { background: #ff5fa8; color: #140a10; border-color: #ff5fa8; }
+.game-result {
+  position: absolute; left: 0; right: 0; top: 34%; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  background: linear-gradient(90deg, transparent, rgba(6, 5, 9, 0.85), transparent); padding: 26px 0;
+}
+.game-result b { font-size: 72px; font-weight: 700; letter-spacing: 0.4em; color: #ff5fa8; text-shadow: 0 0 30px rgba(255, 95, 168, 0.6); }
+.game-result span { font-size: 28px; letter-spacing: 0.3em; }

@@ -1,11 +1,12 @@
-import { Game } from '@client/player/Game';
+import { App } from '@client/App';
 
-async function main() {
+function main(): void {
   const canvas = document.getElementById('game-canvas') as HTMLCanvasElement;
-  const game = new Game(canvas);
-  await game.init();
+  new App(canvas).showMenu();
 }
 
-main().catch((err) => {
+try {
+  main();
+} catch (err) {
   console.error('Falha ao iniciar o jogo:', err);
-});
+}

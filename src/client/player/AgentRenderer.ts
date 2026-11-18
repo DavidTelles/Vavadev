@@ -27,7 +27,6 @@ export class AgentRenderer {
   private prevPos: Vec3 = { x: 0, y: 0, z: 0 };
   private renderPos: Vec3 = { x: 0, y: 0, z: 0 };
   private renderYaw = 0;
-  private hasInitial = false;
 
   constructor(agent: Agent) {
     this.agent = agent;
@@ -42,15 +41,19 @@ export class AgentRenderer {
     this.mixer = new THREE.AnimationMixer(this.mesh);
     for (const clip of this.rig.clips) {
       const action = this.mixer.clipAction(clip);
-      action.setLoop(THREE.LoopRepeat, 3);
-      action.clampWhenFinished = clip.name === 'death';
+      if (clip.name === 'death') {
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+      } else {
+        action.setLoop(THREE.LoopRepeat, Infinity);
+      }
       this.actions.set(clip.name, action);
     }
 
     this.prevPos = { ...agent.pos };
     this.renderPos = { ...agent.pos };
     this.renderYaw = agent.yaw;
-    this.hasInitial = true;
+    this.prevYaw = agent.yaw;
     this.play('idle');
   }
 
@@ -64,20 +67,21 @@ export class AgentRenderer {
     this.currentClip = name;
   }
 
+  /** Call once per fixed tick, BEFORE sim.step, to remember the previous state. */
+  snapshot(): void {
+    const a = this.agent;
+    this.prevPos.x = a.pos.x;
+    this.prevPos.y = a.pos.y;
+    this.prevPos.z = a.pos.z;
+    this.prevYaw = a.yaw;
+  }
+
+  /** Interpolate between the previous tick and the current sim state. */
   setPose(pos: Vec3, yaw: number, alpha: number): void {
-    // Interpolate between the last simulated state and the current one.
-    if (!this.hasInitial) {
-      this.renderPos = { ...pos };
-      this.renderYaw = yaw;
-      this.hasInitial = true;
-    } else {
-      this.renderPos.x = this.prevPos.x + (pos.x - this.prevPos.x) * alpha;
-      this.renderPos.y = this.prevPos.y + (pos.y - this.prevPos.y) * alpha;
-      this.renderPos.z = this.prevPos.z + (pos.z - this.prevPos.z) * alpha;
-      this.renderYaw = this.prevYaw + this.shortestAngle(this.prevYaw, yaw) * alpha;
-    }
-    this.prevPos = { ...pos };
-    this.prevYaw = yaw;
+    this.renderPos.x = this.prevPos.x + (pos.x - this.prevPos.x) * alpha;
+    this.renderPos.y = this.prevPos.y + (pos.y - this.prevPos.y) * alpha;
+    this.renderPos.z = this.prevPos.z + (pos.z - this.prevPos.z) * alpha;
+    this.renderYaw = this.prevYaw + this.shortestAngle(this.prevYaw, yaw) * alpha;
   }
 
   private prevYaw = 0;

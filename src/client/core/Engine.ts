@@ -16,7 +16,7 @@ export class Engine {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.camera = new THREE.PerspectiveCamera(90, 1, 0.05, 400);
     this.camera.rotation.order = 'YXZ';
     this.scene.add(this.camera);
@@ -51,7 +51,7 @@ export class Engine {
     this.sun.shadow.mapSize.set(size, size);
     this.sun.shadow.map?.dispose();
     this.sun.shadow.map = null as unknown as THREE.WebGLRenderTarget;
-    this.renderer.shadowMap.type = q === 'baixa' ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = q === 'baixa' ? THREE.PCFShadowMap : THREE.PCFShadowMap;
     this.resize();
   }
 
