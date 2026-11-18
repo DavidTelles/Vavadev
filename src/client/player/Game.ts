@@ -6,14 +6,23 @@ import { ViewModel } from '@client/weapons/ViewModel';
 import type { ViewModelState } from '@client/weapons/ViewModel';
 import { FX } from '@client/fx/FX';
 import { AgentRenderer } from '@client/player/AgentRenderer';
+import { WorldRenderer } from '@client/fx/WorldRenderer';
+import { HUD } from '@client/ui/HUD';
 import type { Settings } from '@client/Profile';
 import { Simulation, type AgentSetup } from '@shared/sim/Simulation';
 import type { Agent } from '@shared/sim/Agent';
 import { getUsinaMap } from '@shared/data/maps/usina';
 import { CHARACTERS } from '@shared/data/characters';
+import { WEAPONS } from '@shared/data/weapons';
 import { emptyInput, type Difficulty, type InputCommand, type MatchMode, type Team, v3dist } from '@shared/types';
 import { TICK_DT } from '@shared/constants';
 import { t } from '@shared/i18n/pt-BR';
+
+const abilityName = (id: string): string => {
+  if (id === 'spike') return 'Spike';
+  for (const c of CHARACTERS) for (const a of Object.values(c.abilities)) if (a.id === id) return a.name;
+  return id;
+};
 
 export interface GameOptions {
   mode: MatchMode;
@@ -50,7 +59,9 @@ export class Game {
   get sim(): Simulation { return this._sim; }
 
   private readonly botRenderers = new Map<number, AgentRenderer>();
-  private readonly hud = new Map<string, HTMLElement>();
+  private hud!: HUD;
+  private world!: WorldRenderer;
+  private spectateId = -1;
   private readonly hudRoot: HTMLElement;
   private readonly pauseEl: HTMLElement;
   private humanAgentId = -1;
@@ -69,13 +80,14 @@ export class Game {
   constructor(readonly engine: Engine, private readonly opts: GameOptions, private readonly onExit: (r: GameResult | null) => void) {
     const canvas = engine.canvas;
     this.viewModel = new ViewModel();
+    this.viewModel.useRenderer(engine.renderer);
     this.fx = new FX();
     this.mapRenderer = new MapRenderer(getUsinaMap(), opts.settings.quality);
     this.input = new Input(canvas, {
       onShop: () => this.openShop(),
       onScoreboard: () => this.toggleScoreboard(),
       onPause: () => this.pause(),
-      onLockChange: (locked) => this.pauseEl.classList.toggle('on', !locked && !this.ended),
+      onLockChange: (locked) => this.pauseEl.classList.toggle('on', !locked && !this.ended && !this.hud?.shopOpen),
     });
     this.input.sensitivity = opts.settings.sensitivity;
     engine.setQuality(opts.settings.quality);
@@ -98,8 +110,6 @@ export class Game {
     this.hudRoot.className = 'game-hud';
     root.appendChild(this.hudRoot);
     this.pauseEl = this.buildPause();
-    this.hudRoot.appendChild(this.pauseEl);
-    this.buildHUD();
   }
 
   async init(): Promise<void> {
@@ -109,6 +119,10 @@ export class Game {
     });
     this.humanAgentId = sim.agents[0].id;
     this._sim = sim;
+    this.hud = new HUD(this.hudRoot, sim, this.humanAgentId);
+    this.hudRoot.appendChild(this.pauseEl);
+    this.world = new WorldRenderer(sim);
+    this.engine.scene.add(this.world.group);
     this.wireEvents();
     this.sim.start();
 
@@ -134,25 +148,30 @@ export class Game {
 
   private wireEvents(): void {
     const e = this.sim.events;
+    const human = (): Agent => this.sim.agentById(this.humanAgentId)!;
     e.on('shot', (p) => this.fx.spawnTracer(p.origin, p.end, 0xffd28a));
     e.on('impact', (p) => this.fx.spawnImpact(p.point, p.normal, 0xffd28a));
     e.on('damage', (p) => {
-      if (p.attackerId === this.humanAgentId) this.showHitMarker(p.part === 'head');
+      if (p.attackerId === this.humanAgentId) this.hud.hitMarker(p.part === 'head');
     });
     e.on('kill', (p) => {
-      const killer = this.sim.agentById(p.killerId);
       const victim = this.sim.agentById(p.victimId);
-      if (killer && victim) {
-        this.addKillFeed(`${killer.name} ${t('feed.abate')} ${victim.name}` + (p.headshot ? ` — ${t('feed.headshot')}` : ''));
-      }
+      if (!victim) return;
+      const wname = WEAPONS[p.weaponId]?.name ?? abilityName(p.weaponId);
+      this.hud.killFeed(this.sim.agentById(p.killerId), victim, p.headshot, wname);
+    });
+    e.on('roundStart', (p) => {
+      this.hud.showBanner(`${t('hud.rodada').toUpperCase()} ${p.round}`, t(human().team === 'atk' ? 'hud.atacando' : 'hud.defendendo'), true, 2500);
     });
     e.on('roundEnd', (p) => {
-      const human = this.sim.agentById(this.humanAgentId);
-      const won = !!human && p.winner === human.team;
-      this.showNotice(`${t(won ? 'notice.venceuRodada' : 'notice.perdeuRodada')} · ${t('reason.' + p.reason)}`);
+      const won = p.winner === human().team;
+      this.hud.toggleShop(false);
+      this.hud.showBanner(t(won ? 'result.vitoria' : 'result.derrota'), t('reason.' + p.reason).toUpperCase(), won, 4000);
     });
+    e.on('spikePlanted', () => this.hud.showBanner(t('notice.spikePlantada').toUpperCase(), '', human().team === 'atk', 2000));
+    e.on('spikeDefused', () => this.hud.showBanner(t('notice.spikeDesarmada').toUpperCase(), '', human().team === 'def', 2000));
+    e.on('sideSwap', () => this.hud.showBanner(t('notice.ladoTrocado').toUpperCase(), '', true, 2500));
     e.on('matchEnd', (p) => this.finish(p.winner, p.score));
-    e.on('phase', () => this.updateHUD());
   }
 
   private finish(winner: Team, score: Record<Team, number>): void {
@@ -162,6 +181,8 @@ export class Game {
     const won = winner === human.team;
     const banner = document.createElement('div');
     banner.className = 'game-result';
+    this.hud.toggleShop(false);
+    this.hud.showBoard(false);
     banner.innerHTML = `<b>${t(won ? 'result.vitoria' : 'result.derrota')}</b><span>${score.atk} : ${score.def}</span>`;
     this.hudRoot.appendChild(banner);
     this.input.exitLock();
@@ -189,7 +210,6 @@ export class Game {
       this.viewModel.setWeapon(this.lastWeaponId);
       this.viewModel.setArmColors(0x2a3a55, 0xd9a07a);
     }
-    this.updateHUD();
   }
 
   /** Placeholder bot brain until Phase 5: chase the nearest visible enemy and shoot. */
@@ -222,6 +242,12 @@ export class Game {
 
   private frameUpdate(dt: number, alpha: number): void {
     const human = this.sim.agentById(this.humanAgentId);
+    const spect = human && !human.alive ? this.pickSpectate(human) : null;
+    for (const [id, r] of this.botRenderers) r.root.visible = id !== spect?.id;
+    if (spect) {
+      spect.eye(this.engine.camera.position);
+      this.engine.camera.rotation.set(spect.pitch, spect.yaw, 0, 'YXZ');
+    }
     if (human && human.alive) {
       human.eye(this.engine.camera.position);
       this.engine.camera.rotation.set(human.pitch, human.yaw, 0, 'YXZ');
@@ -244,6 +270,8 @@ export class Game {
 
     for (const r of this.botRenderers.values()) r.update(dt, alpha);
     this.fx.update(dt);
+    this.world.update(dt);
+    this.hud.update(spect);
 
     const r = this.engine.renderer;
     r.clear();
@@ -252,6 +280,14 @@ export class Game {
       r.clearDepth();
       r.render(this.viewModel.scene, this.viewModel.camera);
     }
+  }
+
+  private pickSpectate(human: Agent): Agent | null {
+    const cur = this.sim.agentById(this.spectateId);
+    if (cur && cur.alive && cur.team === human.team) return cur;
+    const next = this.sim.agents.find((a) => a.alive && a.team === human.team && a.id !== human.id) ?? null;
+    this.spectateId = next?.id ?? -1;
+    return next;
   }
 
   private resize = (): void => {
@@ -273,63 +309,27 @@ export class Game {
     return el;
   }
 
-  private buildHUD(): void {
-    const root = this.hudRoot;
-    const make = (id: string): HTMLElement => {
-      const el = document.createElement('div');
-      el.id = id;
-      el.className = 'hud-el';
-      root.appendChild(el);
-      this.hud.set(id, el);
-      return el;
-    };
-    const cross = document.createElement('div');
-    cross.id = 'crosshair';
-    root.appendChild(cross);
-    make('hud-ammo');
-    make('hud-status');
-    make('hud-round');
-    make('killfeed');
+  private openShop(): void {
+    if (!this.hud || this.ended) return;
+    const human = this.sim.agentById(this.humanAgentId)!;
+    const open = !this.hud.shopOpen && human.alive;
+    this.hud.toggleShop(open);
+    if (open) this.input.exitLock();
+    else this.input.requestLock();
   }
 
-  private updateHUD(): void {
-    const human = this.sim.agentById(this.humanAgentId);
-    if (!human) return;
-    const w = human.weapon;
-    this.setText('hud-ammo', w.def.category === 'corpo' ? t('hud.faca') : `${w.ammo} / ${w.reserve}`);
-    this.setText('hud-status', `${t('hud.hp')} ${Math.ceil(human.hp)}  ·  ${t('hud.arm')} ${Math.ceil(human.armor)}  ·  ${t('hud.creditos')} ${human.credits}`);
-    const m = this.sim.match;
-    this.setText('hud-round', `${t('hud.rodada')} ${m.round} · ${t('phase.' + m.phase)} (${Math.max(0, Math.ceil(m.timeLeft))}s)  ·  ${m.scoreOf('atk')} : ${m.scoreOf('def')}`);
+  private toggleScoreboard(show = true): void {
+    this.hud?.showBoard(show);
   }
 
-  private setText(id: string, text: string): void {
-    const el = this.hud.get(id)!;
-    if (el.textContent !== text) el.textContent = text;
+  private pause(): void {
+    if (this.hud?.shopOpen) {
+      this.hud.toggleShop(false);
+      this.input.requestLock();
+      return;
+    }
+    this.input.exitLock();
   }
-
-  private showHitMarker(headshot: boolean): void {
-    const el = document.createElement('div');
-    el.className = headshot ? 'hitmark head' : 'hitmark';
-    this.hudRoot.appendChild(el);
-    el.addEventListener('animationend', () => el.remove());
-  }
-
-  private addKillFeed(text: string): void {
-    const kf = this.hud.get('killfeed')!;
-    const line = document.createElement('div');
-    line.textContent = text;
-    kf.insertBefore(line, kf.firstChild);
-    while (kf.children.length > 6) kf.removeChild(kf.lastChild!);
-    setTimeout(() => line.remove(), 5000);
-  }
-
-  private showNotice(text: string): void {
-    this.addKillFeed(text);
-  }
-
-  private openShop(): void { /* full shop UI in Etapa B */ }
-  private toggleScoreboard(): void { /* scoreboard UI in Etapa B */ }
-  private pause(): void { this.input.exitLock(); }
 
   dispose(): void {
     clearTimeout(this.exitTimer);
@@ -343,6 +343,11 @@ export class Game {
     }
     this.botRenderers.clear();
     this.engine.scene.remove(this.mapRenderer.group, this.fx.group);
+    if (this.world) {
+      this.engine.scene.remove(this.world.group);
+      this.world.dispose();
+    }
+    this.hud?.dispose();
     this.fx.dispose();
     this.mapRenderer.dispose();
     this.hudRoot.remove();

@@ -48,6 +48,7 @@ export class App {
     this.menu = null;
     this.menuScene = null;
     this.game = game;
+    if (import.meta.env.DEV) (window as unknown as { __game?: Game }).__game = game;
   }
 
   private endGame(req: PlayRequest, res: GameResult | null): void {

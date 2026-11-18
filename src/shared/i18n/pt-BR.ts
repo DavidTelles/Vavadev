@@ -96,6 +96,14 @@ const DICT: Record<string, string> = {
   'hud.faca': 'FACA',
   'hud.hp': 'VIDA',
   'hud.arm': 'ESCUDO',
+  'hud.voceSpike': 'VOCÊ ESTÁ COM A SPIKE · SEGURE 4 NO SITE',
+  'hud.plantando': 'Plantando...',
+  'hud.espectando': 'ESPECTANDO',
+  'hud.atacando': 'ATACANDO',
+  'hud.defendendo': 'DEFENDENDO',
+  'shop.fechar': 'B PARA FECHAR',
+  'shop.fechada': 'LOJA FECHADA',
+  'shop.habilidades': 'Habilidades',
 
   // ---------- Mode selection ----------
   'mode.titulo': 'Escolha o modo',

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { buildWeaponModel, type WeaponModel } from './WeaponModels';
 
 export interface ViewModelState {
@@ -41,6 +42,7 @@ export class ViewModel {
     this.scene.add(this.camera);
     this.camera.add(this.holder);
     this.holder.add(this.weaponPivot);
+    this.weaponPivot.scale.setScalar(0.8);
 
     const flashMat = new THREE.MeshBasicMaterial({ color: 0xffd28a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
     this.flash = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.22), flashMat);
@@ -67,6 +69,17 @@ export class ViewModel {
     wrist.position.z = 0.04;
     g.add(s, glove, wrist);
     return g;
+  }
+
+  /** Metallic gun materials need reflections; give the viewmodel scene a small studio environment. */
+  useRenderer(renderer: THREE.WebGLRenderer): void {
+    if (this.scene.environment) return;
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const room = new RoomEnvironment();
+    this.scene.environment = pmrem.fromScene(room, 0.04).texture;
+    this.scene.environmentIntensity = 0.7;
+    room.dispose();
+    pmrem.dispose();
   }
 
   setArmColors(sleeve: number, skin: number): void {
@@ -128,12 +141,13 @@ export class ViewModel {
     this.kickRot += (0 - this.kickRot) * Math.min(1, dt * 12);
 
     const reload = st.reloadT > 0 && st.reloadT < 1 ? Math.sin(st.reloadT * Math.PI) : 0;
-    const equip = 1 - Math.min(1, st.equipT);
+    // equipT counts down to 0 while drawing the weapon: 1 = fully lowered, 0 = ready.
+    const equip = Math.min(1, st.equipT / 0.45);
     const plant = st.planting ? 1 : 0;
 
-    const baseX = 0.16 * (1 - this.aimT);
-    const baseY = -0.15 + 0.06 * this.aimT;
-    const baseZ = -0.32 + 0.08 * this.aimT;
+    const baseX = 0.2 * (1 - this.aimT);
+    const baseY = -0.19 + 0.08 * this.aimT;
+    const baseZ = -0.42 + 0.1 * this.aimT;
     this.holder.position.set(baseX + bobX + this.swayX, baseY - bobY + this.swayY - reload * 0.08 - equip * 0.25 - plant * 0.3, baseZ + this.kick);
     this.holder.rotation.set(this.kickRot + reload * 0.7 - equip * 0.8, this.swayX * 2, reload * 0.4);
     if (this.model?.mag) this.model.mag.visible = !(st.reloadT > 0.3 && st.reloadT < 0.65);
